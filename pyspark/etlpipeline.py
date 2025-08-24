@@ -2,6 +2,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import abs as spark_abs
 from pyspark.sql.functions import when, col, unix_timestamp
 
+# * Column Headers * 
 #  |-- VendorID: integer (nullable = true)
 #  |-- tpep_pickup_datetime: timestamp_ntz (nullable = true)
 #  |-- tpep_dropoff_datetime: timestamp_ntz (nullable = true)
@@ -25,7 +26,7 @@ from pyspark.sql.functions import when, col, unix_timestamp
 
 dataPath = "../data/yellow_tripdata_2025-01.parquet"
  
-# initialize PySpark Cluster
+# Initialize PySpark Cluster
 spark = SparkSession \
     .builder \
     .master("local[*]") \
@@ -35,7 +36,7 @@ spark = SparkSession \
 # Read parquet file
 df = spark.read.parquet(dataPath)
 
-# Cleaning the data to remove negative numbers. Possible recovery of incorrect data.
+# Cleans the data of  negative numbers. Possible recovery of incorrect data by using abs value
 df_clean = df \
     .withColumn("passenger_count", spark_abs(df["passenger_count"])) \
     .withColumn("trip_distance", spark_abs(df["trip_distance"])) \
@@ -51,7 +52,7 @@ df_clean = df \
     .withColumn("cbd_congestion_fee", spark_abs(df["cbd_congestion_fee"]))
 
 
-# Filters unrealistic numeric amounts
+# Filters unrealistic numeric amounts based off of avg, min, and max of prior data sets
 df_clean = df_clean.filter(
     (df_clean["passenger_count"] <= 6) &
     (df_clean["trip_distance"] <= 50) &
@@ -67,13 +68,14 @@ df_clean = df_clean.filter(
     (df_clean["cbd_congestion_fee"] <= 1)
 )
 
+# Removes RateCodeID 99 which is NaN (what kind of rate is being applied to trip)
 df_clean = df_clean.filter(df_clean["RatecodeID"] != 99)
 
 # Filters unreasonable time
-df_clean = df_clean.filter(col("tpep_dropoff_datetime") >= col("tpep_pickup_datetime"))
+df_clean = df_clean.filter(col("tpep_dropoff_datetime") > col("tpep_pickup_datetime"))
 
-# Creates Gets trip duration column
-df_clean = df_clean.withColumn("trip_duration_seconds", unix_timestamp(col("tpep_dropoff_datetime")) - unix_timestamp(col("tpep_pickup_datetime")))
+# Creates trip duration column
+df_clean = df_clean.withColumn("trip_duration_mins", ((unix_timestamp(col("tpep_dropoff_datetime")) - unix_timestamp(col("tpep_pickup_datetime")))/60))
 
 # Updates is_cargo trip if trip distance is 0
 df_clean = df_clean.withColumn("is_cargo", when(col("trip_distance") == 0, True).otherwise(False))
