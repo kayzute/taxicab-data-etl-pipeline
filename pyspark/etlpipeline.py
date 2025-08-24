@@ -80,5 +80,5 @@ df_clean = df_clean.withColumn("trip_duration_mins", ((unix_timestamp(col("tpep_
 # Updates is_cargo trip if trip distance is 0
 df_clean = df_clean.withColumn("is_cargo", when(col("trip_distance") == 0, True).otherwise(False))
 
-# Writes to a single .parquet file
-df_clean.coalesce(1).write.mode("overwrite").parquet("cleaned_yellow_tripdata.parquet")
+# Writes cleaned data
+df_clean.write.saveAsTable("default.cleaned_trips")
