@@ -1,5 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import abs as spark_abs
+from pyspark.sql.functions import when, col, unix_timestamp
 
 #  |-- VendorID: integer (nullable = true)
 #  |-- tpep_pickup_datetime: timestamp_ntz (nullable = true)
@@ -23,7 +24,7 @@ from pyspark.sql.functions import abs as spark_abs
 #  |-- cbd_congestion_fee: double (nullable = true)
 
 dataPath = "../data/yellow_tripdata_2025-01.parquet"
-
+ 
 # initialize PySpark Cluster
 spark = SparkSession \
     .builder \
@@ -33,30 +34,27 @@ spark = SparkSession \
 
 # Read parquet file
 df = spark.read.parquet(dataPath)
-df.show(5)
-df.printSchema()
-df.describe().show()
 
 # Cleaning the data to remove negative numbers. Possible recovery of incorrect data.
 df_clean = df \
-    .withColumn("passenger_count", abs(df["passenger_count"])) \
-    .withColumn("trip_distance", abs(df["trip_distance"])) \
-    .withColumn("fare_amount", abs(df["fare_amount"])) \
-    .withColumn("extra", abs(df["extra"])) \
-    .withColumn("mta_tax", abs(df["mta_tax"])) \
-    .withColumn("tip_amount", abs(df["tip_amount"])) \
-    .withColumn("tolls_amount", abs(df["tip_amount"])) \
-    .withColumn("improvement_surcharge", abs(df["improvement_surcharge"])) \
-    .withColumn("total_amount", abs(df["total_amount"])) \
-    .withColumn("congestion_surcharge", abs(df["congestion_surcharge"])) \
-    .withColumn("Airport_fee", abs(df["Airport_fee"])) \
-    .withColumn("cbd_congestion_fee", abs(df["cbd_congestion_fee"]))
+    .withColumn("passenger_count", spark_abs(df["passenger_count"])) \
+    .withColumn("trip_distance", spark_abs(df["trip_distance"])) \
+    .withColumn("fare_amount", spark_abs(df["fare_amount"])) \
+    .withColumn("extra", spark_abs(df["extra"])) \
+    .withColumn("mta_tax", spark_abs(df["mta_tax"])) \
+    .withColumn("tip_amount", spark_abs(df["tip_amount"])) \
+    .withColumn("tolls_amount", spark_abs(df["tolls_amount"])) \
+    .withColumn("improvement_surcharge", spark_abs(df["improvement_surcharge"])) \
+    .withColumn("total_amount", spark_abs(df["total_amount"])) \
+    .withColumn("congestion_surcharge", spark_abs(df["congestion_surcharge"])) \
+    .withColumn("Airport_fee", spark_abs(df["Airport_fee"])) \
+    .withColumn("cbd_congestion_fee", spark_abs(df["cbd_congestion_fee"]))
 
 
-# Filters unrealistic amounts
+# Filters unrealistic numeric amounts
 df_clean = df_clean.filter(
     (df_clean["passenger_count"] <= 6) &
-    (df_clean["trip_distance"] > 50) &
+    (df_clean["trip_distance"] <= 50) &
     (df_clean["fare_amount"] <= 200) &
     (df_clean["extra"] <= 20) &
     (df_clean["mta_tax"] <= 20) &
@@ -69,4 +67,16 @@ df_clean = df_clean.filter(
     (df_clean["cbd_congestion_fee"] <= 1)
 )
 
-df_clean = df.filter(col("RatecodeID") != 99)
+df_clean = df_clean.filter(df_clean["RatecodeID"] != 99)
+
+# Filters unreasonable time
+df_clean = df_clean.filter(col("tpep_dropoff_datetime") >= col("tpep_pickup_datetime"))
+
+# Creates Gets trip duration column
+df_clean = df_clean.withColumn("trip_duration_seconds", unix_timestamp(col("tpep_dropoff_datetime")) - unix_timestamp(col("tpep_pickup_datetime")))
+
+# Updates is_cargo trip if trip distance is 0
+df_clean = df_clean.withColumn("is_cargo", when(col("trip_distance") == 0, True).otherwise(False))
+
+# Writes to a single .parquet file
+df_clean.coalesce(1).write.mode("overwrite").parquet("cleaned_yellow_tripdata.parquet")
