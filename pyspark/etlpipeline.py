@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import abs as spark_abs
-from pyspark.sql.functions import when, col, unix_timestamp
+from pyspark.sql.functions import when, col, unix_timestamp, round
 
 # * Column Headers * 
 #  |-- VendorID: integer (nullable = true)
@@ -23,18 +23,12 @@ from pyspark.sql.functions import when, col, unix_timestamp
 #  |-- congestion_surcharge: double (nullable = true)
 #  |-- Airport_fee: double (nullable = true)
 #  |-- cbd_congestion_fee: double (nullable = true)
-
-dataPath = "../data/yellow_tripdata_2025-01.parquet"
  
 # Initialize PySpark Cluster
-spark = SparkSession \
-    .builder \
-    .master("local[*]") \
-    .appName("Taxi Cab Data ETL Pipeline") \
-    .getOrCreate()
+spark = SparkSession.builder.getOrCreate()
 
-# Read parquet file
-df = spark.read.parquet(dataPath)
+# Read Table
+df = spark.table("workspace.default.yellow_tripdata_2025_01")
 
 # Cleans the data of  negative numbers. Possible recovery of incorrect data by using abs value
 df_clean = df \
@@ -71,14 +65,13 @@ df_clean = df_clean.filter(
 # Removes RateCodeID 99 which is NaN (what kind of rate is being applied to trip)
 df_clean = df_clean.filter(df_clean["RatecodeID"] != 99)
 
-# Filters unreasonable time
+# Filters unreasonable time and creates trip duration
 df_clean = df_clean.filter(col("tpep_dropoff_datetime") > col("tpep_pickup_datetime"))
-
-# Creates trip duration column
-df_clean = df_clean.withColumn("trip_duration_mins", ((unix_timestamp(col("tpep_dropoff_datetime")) - unix_timestamp(col("tpep_pickup_datetime")))/60))
+df_clean = df_clean.withColumn("trip_duration_mins", round((unix_timestamp(col("tpep_dropoff_datetime")) - unix_timestamp(col("tpep_pickup_datetime")))/60))
+df_clean = df_clean.filter(col("trip_duration_mins") <= 180) # should not be more than 3 hours 
 
 # Updates is_cargo trip if trip distance is 0
 df_clean = df_clean.withColumn("is_cargo", when(col("trip_distance") == 0, True).otherwise(False))
 
 # Writes cleaned data
-df_clean.write.saveAsTable("default.cleaned_trips")
+df_clean.write.mode("overwrite").saveAsTable("default.cleaned_trips")
